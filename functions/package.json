@@ -6,7 +6,10 @@
     "axios": "^0.16.2",
     "cors": "^2.8.4",
     "firebase-admin": "~5.2.1",
-    "firebase-functions": "^0.6.2"
+    "firebase-functions": "^0.6.2",
+    "google-auth-library": "^0.10.0",
+    "googleapis": "^21.3.0",
+    "request": "^2.81.0"
   },
   "private": true
 }

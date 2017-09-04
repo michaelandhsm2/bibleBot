@@ -82,7 +82,7 @@ var lineEvent = function(event) {
 大家也可以根據自己的時間上車/下車。\
 大家不好意思在這裡說也可以加我好友，並且私密我。\
 這樣我也還是聽的到的！\n\n\
-那想跟我說話(或執行什麼功能)，只要在話中打'@BibleBot'就可以了\
+那想跟我說話(或執行什麼功能)，只要在話中打'@BibleBot'就可以了。\n\
 如果你不知道要問我甚麼，就從'@BibleBot 幫助'開始吧!";
     replyMessage(event.replyToken, response);
 
@@ -97,7 +97,7 @@ var lineEvent = function(event) {
     replyMessage(event.replyToken, response);
   } else if (event.type == "leave") {
     var groupId = event.source.groupId;
-    getObject(dbRef.groups, groupId, 'id').then(function(group) {
+    getObject(dbRef.child('groups'), groupId, 'id').then(function(group) {
       dbRef.child('groups/' + group.uid).remove().then(function() {
           console.log("Remove succeeded.")
         })
@@ -199,8 +199,8 @@ var lineMessageEvent = function(event) {
   if (asyncResponse != true) {
     replyMessage(event.replyToken, response);
 
-    getObject(dbRef.child('members'), userId, 'userId').then(function(member) {
-      if (userId === undefined) {
+    getObject(dbRef.child('members'), event.source.userId, 'userId').then(function(member) {
+      if (member === undefined) {
         accountLinking(userId, groupId);
       }
     });
@@ -212,7 +212,19 @@ var leaveTrain = function(userId) {
 
   getObject(dbRef.child('members'), userId, 'userId').then(function(member) {
     dbRef.child('status/passengers/' + member.uid).remove();
-    //TODO: 表單移除
+    authorize().then(function(auth){
+      callAppsScript(auth,{
+        auth: auth,
+        resource: {
+          function: 'leave',
+          parameters: [
+            member.name
+          ],
+          devMode: false
+        },
+        scriptId: scriptId
+      });
+    });
   });
 
 }
@@ -225,7 +237,19 @@ var addToTrain = function(member) {
 
   dbRef.child('status/passengers').update(object);
 
-  //TODO: 表單新增項目
+  authorize().then(function(auth){
+    callAppsScript(auth,{
+      auth: auth,
+      resource: {
+        function: 'aboard',
+        parameters: [
+          name
+        ],
+        devMode: false
+      },
+      scriptId: scriptId
+    });
+  });
 }
 
 var accountLinking = function(userId, groupId) {
@@ -256,7 +280,20 @@ var accountLinking = function(userId, groupId) {
         };
         newRef.set(member);
 
-        //TODO: 表單更新姓名選項
+        authorize().then(function(auth){
+          callAppsScript(auth,{
+            auth: auth,
+            resource: {
+              function: 'addUser',
+              parameters: [
+                member.name
+              ],
+              devMode: false
+            },
+            scriptId: scriptId
+          });
+        });
+
       } else {
         dbRef.child('members/' + member.uid).update(response.data);
       }
@@ -346,4 +383,88 @@ var pushToDatabase = function(ref, object) {
   var newRef = ref.push();
   object['uid'] = newRef.key;
   newRef.set(object);
+}
+
+
+const googleAuth = require('google-auth-library');
+const auth = new googleAuth();
+var google = require('googleapis');
+var googleClient = require('./googleClientKey.json');
+const oauth2Client = new auth.OAuth2(googleClient.client_id, googleClient.client_secret, googleClient.redirect_uris);
+const SCOPES = ['https://www.googleapis.com/auth/forms'];
+
+
+  const scriptId = 'MgldHlwc_PgSDNgrrADfUZ93S1bqngOAb';
+  const script = google.script('v1');
+// visit the URL for this Function to obtain tokens
+exports.authGoogleAPI = functions.https.onRequest((req, res) =>
+  res.redirect(oauth2Client.generateAuthUrl({
+    access_type: 'offline',
+    scope: SCOPES,
+    prompt: 'consent'
+  }))
+);
+
+// after you grant access, you will be redirected to the URL for this Function
+// this Function stores the tokens to your Firebase database
+const DB_TOKEN_PATH = '/api_tokens';
+exports.OauthCallback = functions.https.onRequest((req, res) => {
+  console.log(JSON.stringify(req.query));
+  const code = req.query.code;
+  oauth2Client.getToken(code, (err, tokens) => {
+    // Now tokens contains an access_token and an optional refresh_token. Save them.
+    if (err) {
+      return res.status(400).send(err);
+    }
+    return dbRef.child(DB_TOKEN_PATH).set(tokens).then(() => res.status(200).send('OK'));
+  });
+});
+
+
+
+let oauthTokens = null;
+
+var authorize = function() {
+  // Check if we have previously stored a token.
+  return new Promise((resolve, reject) => {
+    if (oauthTokens) {
+      return resolve(oauth2Client);
+    }else{
+      return dbRef.child(DB_TOKEN_PATH).once('value').then((snapshot) => {
+        oauthTokens = snapshot.val();
+        oauth2Client.setCredentials(oauthTokens);
+        return resolve(oauth2Client);
+      }).catch(() => reject());
+    }
+  });
+}
+
+function callAppsScript(auth, setting) {
+
+  // Make the API request. The request object is included here as 'resource'.
+  script.scripts.run(setting, function(err, resp) {
+    if (err) {
+      // The API encountered a problem before the script started executing.
+      console.log('The API returned an error: ' + err);
+      return;
+    }
+    if (resp.error) {
+      // The API executed, but the script returned an error.
+
+      // Extract the first (and only) set of error details. The values of this
+      // object are the script's 'errorMessage' and 'errorType', and an array
+      // of stack trace elements.
+      var error = resp.error.details[0];
+      console.log('Script error message: ' + error.errorMessage);
+      console.log('Script error stacktrace:');
+
+      if (error.scriptStackTraceElements) {
+        // There may not be a stacktrace if the script didn't start executing.
+        for (var i = 0; i < error.scriptStackTraceElements.length; i++) {
+          var trace = error.scriptStackTraceElements[i];
+          console.log('\t%s: %s', trace.function, trace.lineNumber);
+        }
+      }
+    }
+  });
 }
