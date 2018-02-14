@@ -1,7 +1,9 @@
-var dbref;
+var realdbRef,
+  db;
 
-exports.handler = function(req, res, database) {
-  dbRef = database.ref('v2');
+exports.handler = function(req, res, database, firestore) {
+  realdbRef = database.ref('v2');
+  db = firestore;
 
   if (req.body.events) {
     var events = req.body.events;
@@ -22,7 +24,10 @@ exports.handler = function(req, res, database) {
 var lineEvent = function(event) {
   if (event.type == "message" && event.message.type == "text") {
     lineMessageEvent(event);
-  }
+
+    getUserIdentity(event.source);
+
+  } else if (event.type == "follow") {}
 }
 
 var lineMessageEvent = function(event) {
@@ -32,7 +37,7 @@ var lineMessageEvent = function(event) {
 
   //Comfirmed to be talking to bot
   if (/[Hh]elp|幫助|功能/g.test(text)) {
-    scriptFunction('aboard','me');
+    scriptFunction('aboard', 'me');
     response = "Me Added.";
   } else {
     response = text;
@@ -127,9 +132,42 @@ var processMessage = function(message) {
 }
 
 //
+//  Project Based Funcitons\  Retrieves user object with lineId
+var getUserIdentity = function(source) {
+  var userRef = db.collection('users').doc(source.userId);
+  userRef.get().then(function(snapshot) {
+    return new Promise(function(resolve, reject) {
+      if (!snapshot.exists) {
+        switch (source.type) {
+          case 'room':
+            client.getRoomMemberProfile(source.roomId, source.userId).then(createUserIdentity);
+            break;
+          case 'group':
+            client.getGroupMemberProfile(source.groupId, source.userId).then(createUserIdentity);
+            break;
+          default:
+            client.getProfile(source.userId).then(createUserIdentity);
+        }
+      } else {
+        resolve(snapshot.data);
+      }
+    });
+  });
+}
+
+var createUserIdentity = function(profile) {
+  profile.username = profile.displayName;
+  db.collection('users').doc(profile.userId).set(profile).then(function() {
+    return Promise.resolve(profile);
+  });
+}
+
+//
 //Google Script API related functions
 
-var {google} = require('googleapis');
+var {
+  google
+} = require('googleapis');
 var googleClient = require('./keys/googleClientKey.json');
 const oauth2Client = new google.auth.OAuth2(googleClient.client_id, googleClient.client_secret, googleClient.redirect_uris);
 const DB_TOKEN_PATH = '/api_tokens';
@@ -144,7 +182,7 @@ var authorize = function() {
     if (oauthTokens) {
       return resolve(oauth2Client);
     } else {
-      return dbRef.child(DB_TOKEN_PATH).once('value').then((snapshot) => {
+      return realdbRef.child(DB_TOKEN_PATH).once('value').then((snapshot) => {
         oauthTokens = snapshot.val();
         oauth2Client.setCredentials(oauthTokens);
         return resolve(oauth2Client);
@@ -187,7 +225,7 @@ var scriptFunction = function(functionName, functionParameters) {
   if (!Array.isArray(functionParameters)) {
     functionParameters = [functionParameters];
   }
-
+  console.log("Script Function - " + functionName + " : " + functionParameters)
   authorize().then(function(auth) {
     callAppsScript(auth, {
       auth: auth,

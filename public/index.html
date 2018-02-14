@@ -1,16 +1,28 @@
 <!DOCTYPE html>
 <html>
+
 <head>
   <meta charset="utf-8">
   <title>Welcome to Vuetify</title>
   <link href='https://fonts.googleapis.com/css?family=Roboto:300,400,500,700|Material+Icons' rel="stylesheet" type="text/css">
   <link href="https://unpkg.com/vuetify/dist/vuetify.min.css" rel="stylesheet" type="text/css"></link>
+  <script src="https://www.gstatic.com/firebasejs/ui/2.6.0/firebase-ui-auth__zh_tw.js"></script>
+  <link type="text/css" rel="stylesheet" href="https://www.gstatic.com/firebasejs/ui/2.6.0/firebase-ui-auth.css" />
+  <script src="https://www.gstatic.com/firebasejs/4.1.3/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/4.1.3/firebase-auth.js"></script>
+
+
+  <!-- load jQuery before your home-brewed js scripts -->
+  <script src="https://code.jquery.com/jquery-3.2.1.min.js" integrity="sha256-hwg4gsxgFZhOsEEamdOYGBf13FyQuiTwlAQgxVSNgt4=" crossorigin="anonymous"></script>
 </head>
+
 <body>
   <div id="app">
     <v-app>
       <v-content>
-        <v-container>Hello world</v-container>
+        <v-container>
+          <div id="firebaseui-auth-container"></div>
+        </v-container>
       </v-content>
     </v-app>
   </div>
@@ -23,7 +35,39 @@
       el: '#app'
     })
 
-    
+
+    // Initialize Firebase
+    var config = {
+      apiKey: "AIzaSyARWu1-EhRSj9qh7DKTUa9nLMHQahO7NcI",
+      authDomain: "biblebot-f4704.firebaseapp.com",
+      databaseURL: "https://biblebot-f4704.firebaseio.com",
+      projectId: "biblebot-f4704",
+      storageBucket: "biblebot-f4704.appspot.com",
+      messagingSenderId: "950696605455"
+    };
+    firebase.initializeApp(config);
+
+    // Initialize the FirebaseUI Widget using Firebase.
+    var ui = new firebaseui.auth.AuthUI(firebase.auth());
+    // The start method will wait until the DOM is loaded.
+    ui.start('#firebaseui-auth-container', {
+        signInSuccessUrl: 'template.html',
+      signInOptions: [{
+          // Google provider must be enabled in Firebase Console to support one-tap
+          // sign-up.
+          provider: firebase.auth.GoogleAuthProvider.PROVIDER_ID,
+          // Required to enable this provider in one-tap sign-up.
+          authMethod: 'https://accounts.google.com',
+          // Required to enable ID token credentials for this provider.
+          // This can be obtained from the Credentials page of the Google APIs
+          // console.
+          clientId: '950696605455-q0f7o42g9cotpsm07o1uasga5t9qki7a.apps.googleusercontent.com'
+        }
+      ],
+      // Required to enable one-tap sign-up credential helper.
+      credentialHelper: firebaseui.auth.CredentialHelper.GOOGLE_YOLO
+    });
   </script>
 </body>
+
 </html>

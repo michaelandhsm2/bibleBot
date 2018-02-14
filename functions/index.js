@@ -20,6 +20,8 @@ admin.initializeApp({
 });
 
 const dbRef = admin.database().ref();
+const dbFireStore = admin.firestore();
+
 const webhookFunction = require('./webhook');
 const webhook2Function = require('./webhook2');
 
@@ -29,7 +31,7 @@ exports.webhook = functions.https.onRequest((req, res) => {
 });
 
 exports.webhook2 = functions.https.onRequest((req, res) => {
-    webhook2Function.handler(req, res, admin.database());
+    webhook2Function.handler(req, res, admin.database(), dbFireStore);
 });
 
 
