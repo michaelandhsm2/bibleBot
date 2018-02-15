@@ -12,13 +12,34 @@ exports.handler = function(req, res, database, firestore) {
       console.log("Event - " + JSON.stringify(event));
       lineEvent(event);
     });
-  } else if (req.body.Timestamp) {
+  } else if (req.body.timestamp) {
     formEvent(req.body);
   } else {
     console.log("Body - " + JSON.stringify(req.body));
   }
 
   res.status(200).send();
+}
+
+var formEvent = function(payload) {
+
+  payload.timestamp = new Date(payload.timestamp);
+
+  var postRef = db.collection('posts').add(payload);
+  var message = "[本日金句]\n\
+列車長 - " + payload.name + "\n明日列車長 - " + payload.next + "\n\n<" + payload.origin + ">\n" + payload.verse + "\n\n";
+  if (payload.comments != "") {
+    message += "心得：\n" + payload.comments + "\n\n";
+  }
+
+  var groupRef = db.collection('groups');
+  groupRef.get().then(function(qSnapshot) {
+    qSnapshot.forEach(function(group) {
+      pushMessage(group.id, message);
+      console.log("Post delivered to " + group.name);
+    });
+  });
+
 }
 
 var lineEvent = function(event) {
@@ -40,13 +61,29 @@ var lineEvent = function(event) {
 
   } else if (event.type == "join") {
 
-    //
+    var multiId;
+    if (event.source.type == "group") {
+      multiId = event.source.groupId;
+    } else {
+      multiId = event.source.roomId;
+    }
+    var groupRef = db.collection('groups').doc(multiId);
+    groupRef.set({id: multiId, type: event.source.type, name: "Unknown", timestamp: new Date()}).then(function() {
+      var response = "哈囉~\n\
+我是金句列車機器人BibleBot。\n\
+如果你不知道要問我甚麼，就從'@BibleBot 幫助'開始吧!";
+      replyMessage(event.replyToken, response);
+    });
+
+  } else if (event.type == "leave") {
+
+    var groupRef = db.collection('groups').doc(event.source.groupId).delete();
 
   } else if (event.type == "postback") {
 
     var data = JSON.parse(event.postback.data);
     // Check if user who clicked the button is the intended target.
-    if (data.userId == event.source.userId){
+    if (data.userId == event.source.userId) {
       //換名稱確認
       if (data.action == "changeNameConfirm") {
         if (data.result) {
@@ -149,7 +186,7 @@ var lineMessageEvent = function(event) {
                 type: "postback",
                 label: "是的",
                 data: JSON.stringify({action: "changeNameConfirm", result: true, userId: profile.userId, name: name}),
-                displayText: "是的，我希望把名稱改成 '"+ name+"'"
+                displayText: "是的，我希望把名稱改成 '" + name + "'"
               }, {
                 type: "postback",
                 label: "不要",
@@ -159,12 +196,13 @@ var lineMessageEvent = function(event) {
             ]
           }
         };
+        replyMessage(event.replyToken, response);
 
       } else {
         response = "Not Implemented Yet";
+        replyMessage(event.replyToken, response);
 
       }
-      replyMessage(event.replyToken, response);
 
     });
 
