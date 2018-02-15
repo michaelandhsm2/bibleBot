@@ -23,11 +23,48 @@ exports.handler = function(req, res, database, firestore) {
 
 var lineEvent = function(event) {
   if (event.type == "message" && event.message.type == "text") {
-    lineMessageEvent(event);
 
-    getUserIdentity(event.source);
+    if (event.source.type == "user" || /@.*[Bb]ible *[Bb]ot/.test(event.message.text)) {
+      lineMessageEvent(event);
+    }
 
-  } else if (event.type == "follow") {}
+  } else if (event.type == "follow") {
+
+    getUserIdentity(event.source).then(function(profile) {
+      var response = "\
+哈囉，" + profile.username + "。\n\
+歡迎加入真愛團契金句列車。\n\
+你可以用這個對話框來上下車、改暱稱。"
+      replyMessage(event.replyToken, response);
+    });
+
+  } else if (event.type == "join") {
+
+    //
+
+  } else if (event.type == "postback") {
+
+    var data = JSON.parse(event.postback.data);
+    // Check if user who clicked the button is the intended target.
+    if (data.userId == event.source.userId){
+      //換名稱確認
+      if (data.action == "changeNameConfirm") {
+        if (data.result) {
+          var userRef = db.collection('users').doc(event.source.userId);
+          userRef.update({chatState: 'normal', username: data.name}).then(function() {
+            var response = data.name + "，\n你的暱稱更新完成了！";
+            replyMessage(event.replyToken, response);
+          });
+        } else {
+          var response = "那請再輸入一次希望的名稱。"
+          replyMessage(event.replyToken, response);
+        }
+      }
+
+    }
+
+  }
+
 }
 
 var lineMessageEvent = function(event) {
@@ -35,15 +72,88 @@ var lineMessageEvent = function(event) {
   var text = event.message.text;
   var asyncResponse = false;
 
-  //Comfirmed to be talking to bot
-  if (/[Hh]elp|幫助|功能/g.test(text)) {
-    scriptFunction('aboard', 'me');
-    response = "Me Added.";
+  if (/[Hh]elp|幫助|功能/.test(text)) {
+
+    response = "Not Implemented Yet";
+
+  } else if (/[Jj]oin|加入|上車/.test(text)) {
+
+    asyncResponse = true;
+
+  } else if (/[Ll]eave|離開|下車/.test(text)) {
+
+    asyncResponse = true;
+    // scriptFunction('aboard', 'me');
+    response = "Not Implemented Yet";
+
+  } else if (/[Cc]hange|改[暱名]稱/.test(text) && event.source.type == "user") {
+
+    getUserIdentity(event.source).then(function(profile) {
+      var userRef = db.collection('users').doc(profile.userId);
+      userRef.update({chatState: 'changeName'}).then(function() {
+        var response = profile.username + "，\n請輸入你新的暱稱：\n\n\
+        若你在群組，請在名稱前打'@BibleBot'並空一格\n\
+        例：@BibleBot Michael";
+        replyMessage(event.replyToken, response);
+      });
+    });
+
+  } else if (/[Ww]eb|網頁|過去金句|金句/.test(text)) {
+
+    // scriptFunction('aboard', 'me');
+    response = "Not Implemented Yet";
+
+  } else if (/[Ff]orm|表單/.test(text)) {
+
+    // scriptFunction('aboard', 'me');
+    response = "Not Implemented Yet";
+
+  } else if (/[Qq]&[Aa]|都給你問/.test(text)) {
+
+    // scriptFunction('aboard', 'me');
+    response = "Not Implemented Yet";
+
   } else {
-    response = text;
+
+    asyncResponse = true;
+
+    getUserIdentity(event.source).then(function(profile) {
+
+      if (profile.chatState == 'changeName') {
+        var name = text.replace(/@.*[Bb]ible *[Bb]ot */, "");
+        response = {
+          type: "template",
+          altText: "請用手機看 QQ，電腦沒辦法看按鈕 WWW",
+          template: {
+            type: "confirm",
+            text: profile.username + "，\n你確定要把名稱換成 '" + name + "' 嗎？",
+            actions: [
+              {
+                type: "postback",
+                label: "是的",
+                data: JSON.stringify({action: "changeNameConfirm", result: true, userId: profile.userId, name: name}),
+                displayText: "是的，我希望把名稱改成 '"+ name+"'"
+              }, {
+                type: "postback",
+                label: "不要",
+                data: JSON.stringify({action: "changeNameConfirm", result: false, userId: profile.userId, name: name}),
+                displayText: "不要"
+              }
+            ]
+          }
+        };
+
+      } else {
+        response = "Not Implemented Yet";
+
+      }
+      replyMessage(event.replyToken, response);
+
+    });
+
   }
 
-  if (asyncResponse != true) {
+  if (!asyncResponse) {
     replyMessage(event.replyToken, response);
   }
 
@@ -135,30 +245,29 @@ var processMessage = function(message) {
 //  Project Based Funcitons\  Retrieves user object with lineId
 var getUserIdentity = function(source) {
   var userRef = db.collection('users').doc(source.userId);
-  userRef.get().then(function(snapshot) {
-    return new Promise(function(resolve, reject) {
-      if (!snapshot.exists) {
-        switch (source.type) {
-          case 'room':
-            client.getRoomMemberProfile(source.roomId, source.userId).then(createUserIdentity);
-            break;
-          case 'group':
-            client.getGroupMemberProfile(source.groupId, source.userId).then(createUserIdentity);
-            break;
-          default:
-            client.getProfile(source.userId).then(createUserIdentity);
-        }
-      } else {
-        resolve(snapshot.data);
+  return userRef.get().then(function(snapshot) {
+    if (!snapshot.exists) {
+      console.log("Retrieve user info from Line.");
+      switch (source.type) {
+        case 'room':
+          return client.getRoomMemberProfile(source.roomId, source.userId).then(createUserIdentity);
+        case 'group':
+          return client.getGroupMemberProfile(source.groupId, source.userId).then(createUserIdentity);
+        default:
+          return client.getProfile(source.userId).then(createUserIdentity);
       }
-    });
+    } else {
+      return snapshot.data();
+    }
   });
 }
 
 var createUserIdentity = function(profile) {
   profile.username = profile.displayName;
-  db.collection('users').doc(profile.userId).set(profile).then(function() {
-    return Promise.resolve(profile);
+  profile.chatState = 'normal';
+  profile.isEnabled = false;
+  return db.collection('users').doc(profile.userId).set(profile).then(function() {
+    return profile;
   });
 }
 
