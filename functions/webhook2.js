@@ -79,12 +79,29 @@ var lineMessageEvent = function(event) {
   } else if (/[Jj]oin|加入|上車/.test(text)) {
 
     asyncResponse = true;
+    getUserIdentity(event.source).then(function(profile) {
+      userRef.update({isEnabled: true}).then(function() {
+        var response = profile.username + "，\n\
+        歡迎搭乘金句列車!\n讓我們啟航吧!\n\n\
+        請記得加我好友，我才能寄給你提醒訊息喔！";
+        replyMessage(event.replyToken, response);
+
+        //TODO: 表單新增使用者
+      });
+    });
 
   } else if (/[Ll]eave|離開|下車/.test(text)) {
 
     asyncResponse = true;
-    // scriptFunction('aboard', 'me');
-    response = "Not Implemented Yet";
+    getUserIdentity(event.source).then(function(profile) {
+      userRef.update({isEnabled: false}).then(function() {
+        var response = profile.username + "，\n\
+        謝謝您搭乘金句列車!\n讓我們有空時再會!";
+        replyMessage(event.replyToken, response);
+
+        //TODO: 表單移除使用者
+      });
+    });
 
   } else if (/[Cc]hange|改[暱名]稱/.test(text) && event.source.type == "user") {
 
@@ -266,6 +283,8 @@ var createUserIdentity = function(profile) {
   profile.username = profile.displayName;
   profile.chatState = 'normal';
   profile.isEnabled = false;
+  profile.lastSubmit = null;
+  profile.submitCount = 0;
   return db.collection('users').doc(profile.userId).set(profile).then(function() {
     return profile;
   });
