@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <title>Welcome to Vuetify</title>
+  <script src="https://www.gstatic.com/firebasejs/4.10.0/firebase.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/4.10.0/firebase-firestore.js"></script>
+  <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script>
+
+</head>
+
+<body>
+
+  <script>
+    // Initialize Firebase
+    var config = {
+      apiKey: "AIzaSyARWu1-EhRSj9qh7DKTUa9nLMHQahO7NcI",
+      authDomain: "biblebot-f4704.firebaseapp.com",
+      databaseURL: "https://biblebot-f4704.firebaseio.com",
+      projectId: "biblebot-f4704",
+      storageBucket: "biblebot-f4704.appspot.com",
+      messagingSenderId: "950696605455"
+    };
+    firebase.initializeApp(config);
+    var db = firebase.firestore();
+
+
+
+    var formEvent = function(payload) {
+
+      console.log("Form Submit - " + JSON.stringify(payload));
+      payload.timestamp = new Date(payload.timestamp);
+
+      var postRef = db.collection('posts').add(payload);
+      var message = "[本日金句]\n\
+    列車長 - " + payload.name + "\n明日列車長 - " + payload.next + "\n\n<" + payload.origin + ">\n" + payload.verse + "\n\n";
+      if (payload.comments != "") {
+        message += "心得：\n" + payload.comments + "\n\n";
+      }
+
+      //Send line message to all groups
+      var groupsRef = db.collection('groups');
+      groupsRef.get().then(function(qSnapshot) {
+        console.log("Get group snapshot");
+        qSnapshot.forEach(function(groupDoc) {
+          var group = groupDoc.data();
+          // pushMessage(group.id, message);
+          console.log("Post delivered to " + group.name);
+        });
+      });
+
+      //Identify current
+      var usersRef = db.collection('users');
+      usersRef.where('username', '==', payload.name).get().then(function(qSnapshot) {
+        console.log("Get user snapshot");
+        qSnapshot.forEach(function(userDoc) {
+          var user = userDoc.data();
+          console.log("Current - " + JSON.stringify(user));
+          db.collection('users').doc(user.userId).update({
+            lastSubmit: new Date(),
+            submitCount: user.submitCount + 1
+          });
+        });
+      });
+
+      //Identify Next
+      var statusRef = db.collection('biblebot').doc('status');
+      usersRef.where('username', '==', payload.next).get().then(function(qSnapshot) {
+        var promises = [];
+        qSnapshot.forEach(function(userDoc) {
+          console.log("Get nexy snapshot");
+          var user = userDoc.data();
+          console.log("Next - " + JSON.stringify(user));
+          var t = db.runTransaction(function(trans) {
+            return trans.get(statusRef).then(function(snapshot) {
+              var data = snapshot.data();
+              var newCount = data.postCount + 1;
+              trans.update(statusRef, {
+                postCount: newCount,
+                nextUserId: user.userId
+              });
+            });
+          });
+          promises.push(t);
+        });
+        Promise.all(promises).then(formUpdate);
+      });
+    }
+
+    var formUpdate = function() {
+      var usersRef = db.collection('users');
+      var statusRef = db.collection('biblebot').doc('status');
+       statusRef.get().then(function(snapshot) {
+        var status = snapshot.data();
+        usersRef.where('isEnabled','==',true).orderBy('lastSubmit').get().then(function(qSnapshot) {
+          var users = [];
+          var nextUsers = [];
+          qSnapshot.forEach(function(userDoc) {
+            var user = userDoc.data();
+            if (user.userId == status.nextUserId) {
+              users.unshift(user.username);
+            } else {
+              users.push(user.username);
+              nextUsers.push(user.username + " - " + daysAgo(user.lastSubmit));
+            }
+          });
+          scriptFunction("refresh", [users,nextUsers]);
+        });
+      });
+    }
+
+    var daysAgo = function(lastSubmit) {
+      if (!lastSubmit) {
+        return ("Never");
+      } else {
+        var today = new Date();
+        lastSubmit.setHours(0, 0, 0, 0);
+        var daysDiff = Math.floor((today - lastSubmit) / (24 * 60 * 60 * 1000));
+        if (daysDiff > 1) {
+          return (daysDiff + " days ago");
+        } else if (daysDiff == 1) {
+          return ("yesterday");
+        } else {
+          return ("today");
+        }
+      }
+    }
+
+    var scriptFunction = function(functionName, functionParameters) {
+      console.log("Script Function - " + functionName);
+      console.log(functionParameters);
+    }
+
+    var formData = {
+      timestamp: new Date(),
+      name: "韓寧",
+      next: "Michael",
+      "verse": "f",
+      "origin": "f",
+      "comments": ""
+    };
+
+    var sendMessage = function(pushURL, sendObject) {
+      console.log(pushURL);
+      console.log(sendObject);
+      return $.ajax({
+        url: pushURL,
+        type: "POST",
+        data: sendObject,
+        dataType: 'json',
+        success: function(data) {
+          console.log("Message Sent!");
+        },
+        failure: function(errMsg) {
+          alert(errMsg);
+        }
+      });
+    }
+
+    sendMessage("https://us-central1-biblebot-f4704.cloudfunctions.net/webhook2", formData);
+    // formEvent(formData);
+  </script>
+</body>
+
+</html>

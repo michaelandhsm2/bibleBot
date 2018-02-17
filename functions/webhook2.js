@@ -23,6 +23,7 @@ exports.handler = function(req, res, database, firestore) {
 
 var formEvent = function(payload) {
 
+  console.log("Form Submit - " + JSON.stringify(payload));
   payload.timestamp = new Date(payload.timestamp);
 
   var postRef = db.collection('posts').add(payload);
@@ -32,14 +33,50 @@ var formEvent = function(payload) {
     message += "心得：\n" + payload.comments + "\n\n";
   }
 
-  var groupRef = db.collection('groups');
-  groupRef.get().then(function(qSnapshot) {
-    qSnapshot.forEach(function(group) {
+  //Send line message to all groups
+  var groupsRef = db.collection('groups');
+  groupsRef.get().then(function(qSnapshot) {
+    qSnapshot.forEach(function(groupDoc) {
+      var group = groupDoc.data();
       pushMessage(group.id, message);
       console.log("Post delivered to " + group.name);
     });
   });
 
+  //Identify current
+  var usersRef = db.collection('users');
+  usersRef.where('username', '==', payload.name).get().then(function(qSnapshot) {
+    qSnapshot.forEach(function(userDoc) {
+      var user = userDoc.data();
+      console.log("Current - "+JSON.stringify(user.username));
+      db.collection('users').doc(user.userId).update({
+        lastSubmit: new Date(),
+        submitCount: user.submitCount + 1
+      });
+    });
+  });
+
+  //Identify Next
+  var statusRef = db.collection('biblebot').doc('status');
+  usersRef.where('username', '==', payload.next).get().then(function(qSnapshot) {
+    var promises = [];
+    qSnapshot.forEach(function(userDoc) {
+      var user = userDoc.data();
+      console.log("Next - "+JSON.stringify(user.username));
+      var t = db.runTransaction(function(trans) {
+        return trans.get(statusRef).then(function(snapshot) {
+          var data = snapshot.data();
+          var newCount = data.postCount + 1;
+          trans.update(statusRef, {
+            postCount: newCount,
+            nextUserId: user.userId
+          });
+        });
+      });
+      promises.push(t);
+    });
+    Promise.all(promises).then(formUpdate);
+  });
 }
 
 var lineEvent = function(event) {
@@ -91,6 +128,7 @@ var lineEvent = function(event) {
           userRef.update({chatState: 'normal', username: data.name}).then(function() {
             var response = data.name + "，\n你的暱稱更新完成了！";
             replyMessage(event.replyToken, response);
+            formUpdate();
           });
         } else {
           var response = "那請再輸入一次希望的名稱。"
@@ -117,13 +155,13 @@ var lineMessageEvent = function(event) {
 
     asyncResponse = true;
     getUserIdentity(event.source).then(function(profile) {
+      var userRef = db.collection('users').doc(profile.userId);
       userRef.update({isEnabled: true}).then(function() {
         var response = profile.username + "，\n\
-        歡迎搭乘金句列車!\n讓我們啟航吧!\n\n\
-        請記得加我好友，我才能寄給你提醒訊息喔！";
+歡迎搭乘金句列車!\n讓我們啟航吧!\n\n\
+請記得加我好友，我才能寄給你提醒訊息喔！";
         replyMessage(event.replyToken, response);
-
-        //TODO: 表單新增使用者
+        formUpdate();
       });
     });
 
@@ -131,23 +169,23 @@ var lineMessageEvent = function(event) {
 
     asyncResponse = true;
     getUserIdentity(event.source).then(function(profile) {
+      var userRef = db.collection('users').doc(profile.userId);
       userRef.update({isEnabled: false}).then(function() {
-        var response = profile.username + "，\n\
-        謝謝您搭乘金句列車!\n讓我們有空時再會!";
+        var response = profile.username + "，\n謝謝您搭乘金句列車!\n讓我們有空時再會!";
         replyMessage(event.replyToken, response);
-
-        //TODO: 表單移除使用者
+        formUpdate();
       });
     });
 
-  } else if (/[Cc]hange|改[暱名]稱/.test(text) && event.source.type == "user") {
+  } else if (/[Cc]hange|改[暱名]稱/.test(text)) {
 
+    asyncResponse = true;
     getUserIdentity(event.source).then(function(profile) {
       var userRef = db.collection('users').doc(profile.userId);
       userRef.update({chatState: 'changeName'}).then(function() {
         var response = profile.username + "，\n請輸入你新的暱稱：\n\n\
-        若你在群組，請在名稱前打'@BibleBot'並空一格\n\
-        例：@BibleBot Michael";
+若你在群組，請在名稱前打'@BibleBot'並空一格\n\
+例：@BibleBot Michael";
         replyMessage(event.replyToken, response);
       });
     });
@@ -174,10 +212,12 @@ var lineMessageEvent = function(event) {
     getUserIdentity(event.source).then(function(profile) {
 
       if (profile.chatState == 'changeName') {
+
+        //TODO: Prevent username duplication
         var name = text.replace(/@.*[Bb]ible *[Bb]ot */, "");
         response = {
           type: "template",
-          altText: "請用手機看 QQ，電腦沒辦法看按鈕 WWW",
+          altText: "請用手機看 QQ，\n電腦沒辦法看按鈕 WWW",
           template: {
             type: "confirm",
             text: profile.username + "，\n你確定要把名稱換成 '" + name + "' 嗎？",
@@ -212,53 +252,6 @@ var lineMessageEvent = function(event) {
     replyMessage(event.replyToken, response);
   }
 
-}
-
-//  General Functions
-//
-
-var getObject = function(ref, value = null, searchKey = 'uid') {
-  if (value) {
-    return ref.orderByChild(searchKey).equalTo(value).once('value').then(function(snapshot) {
-      var object = snapshot.val();
-      for (key in object)
-        return object[key];
-      }
-    );
-  } else {
-    return ref.once('value').then(function(snapshot) {
-      var response = {};
-      var object = snapshot.val();
-      for (key in object) {
-        response[key] = object[key];
-      }
-      return (response)
-    });
-  }
-}
-
-var getObjectList = function(ref, item = null) {
-
-  return ref.once('value').then(function(snapshot) {
-    var response = [];
-
-    snapshot.forEach(function(childSnapshot) {
-      var childData = childSnapshot.val();
-      if (item) {
-        response.push(childData[item]);
-      } else {
-        response.push(childData);
-      }
-    });
-
-    return response;
-  });
-}
-
-var pushToDatabase = function(ref, object) {
-  var newRef = ref.push();
-  object['uid'] = newRef.key;
-  newRef.set(object);
 }
 
 //  Line-Related Functions
@@ -298,6 +291,7 @@ var processMessage = function(message) {
 
 //
 //  Project Based Funcitons\  Retrieves user object with lineId
+
 var getUserIdentity = function(source) {
   var userRef = db.collection('users').doc(source.userId);
   return userRef.get().then(function(snapshot) {
@@ -326,6 +320,45 @@ var createUserIdentity = function(profile) {
   return db.collection('users').doc(profile.userId).set(profile).then(function() {
     return profile;
   });
+}
+
+var formUpdate = function() {
+  var usersRef = db.collection('users');
+  var statusRef = db.collection('biblebot').doc('status');
+   statusRef.get().then(function(snapshot) {
+    var status = snapshot.data();
+    usersRef.where('isEnabled','==',true).orderBy('lastSubmit').get().then(function(qSnapshot) {
+      var users = [];
+      var nextUsers = [];
+      qSnapshot.forEach(function(userDoc) {
+        var user = userDoc.data();
+        if (user.userId == status.nextUserId) {
+          users.unshift(user.username);
+        } else {
+          users.push(user.username);
+          nextUsers.push(user.username + " - " + daysAgo(user.lastSubmit));
+        }
+      });
+      scriptFunction("refresh", [users,nextUsers]);
+    });
+  });
+}
+
+var daysAgo = function(lastSubmit) {
+  if (!lastSubmit) {
+    return ("Never");
+  } else {
+    var today = new Date();
+    lastSubmit.setHours(0, 0, 0, 0);
+    var daysDiff = Math.floor((today - lastSubmit) / (24 * 60 * 60 * 1000));
+    if (daysDiff > 1) {
+      return (daysDiff + " days ago");
+    } else if (daysDiff == 1) {
+      return ("Yesterday");
+    } else {
+      return ("Today");
+    }
+  }
 }
 
 //
@@ -391,8 +424,8 @@ var scriptFunction = function(functionName, functionParameters) {
   if (!Array.isArray(functionParameters)) {
     functionParameters = [functionParameters];
   }
-  console.log("Script Function - " + functionName + " : " + functionParameters)
-  authorize().then(function(auth) {
+  console.log("Script Function - " + functionName + " : " + functionParameters);
+  return authorize().then(function(auth) {
     callAppsScript(auth, {
       auth: auth,
       resource: {
@@ -402,5 +435,7 @@ var scriptFunction = function(functionName, functionParameters) {
       },
       scriptId: scriptId
     });
+  }).catch(function(error) {
+    console.log(error);
   });
 }

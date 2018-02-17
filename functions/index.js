@@ -7,17 +7,9 @@ var serviceAccount = require("./keys/serviceAccountKey.json");
 
 // Install related npm modules - npm install @line/bot-sdk cors axios -save
 const axios = require('axios');
-const cors = require('cors')({
-  origin: true
-});
+const cors = require('cors')({origin: true});
 
-
-
-
-admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount),
-  databaseURL: "https://biblebot-f4704.firebaseio.com"
-});
+admin.initializeApp({credential: admin.credential.cert(serviceAccount), databaseURL: "https://biblebot-f4704.firebaseio.com"});
 
 const dbRef = admin.database().ref();
 const dbFireStore = admin.firestore();
@@ -25,37 +17,31 @@ const dbFireStore = admin.firestore();
 const webhookFunction = require('./webhook');
 const webhook2Function = require('./webhook2');
 
-
 exports.webhook = functions.https.onRequest((req, res) => {
-    webhookFunction.handler(req, res, admin.database());
+  webhookFunction.handler(req, res, admin.database());
 });
 
 exports.webhook2 = functions.https.onRequest((req, res) => {
+  cors(req, res, () => {
     webhook2Function.handler(req, res, admin.database(), dbFireStore);
+  });
 });
 
+//
+//
+//
 
-// // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // //
-// // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // //
-// // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // //
-
-
-var {google} = require('googleapis');
+var {
+  google
+} = require('googleapis');
 var googleClient = require('./keys/googleClientKey.json');
 const oauth2Client = new google.auth.OAuth2(googleClient.client_id, googleClient.client_secret, googleClient.redirect_uris);
 const DB_TOKEN_PATH = '/api_tokens';
 
-
-const SCOPES = ['https://www.googleapis.com/auth/forms'];
+const SCOPES = ['https://www.googleapis.com/auth/forms', 'https://www.googleapis.com/auth/script.external_request'];
 
 // visit the URL for this Function to obtain tokens
-exports.authGoogleAPI = functions.https.onRequest((req, res) =>
-  res.redirect(oauth2Client.generateAuthUrl({
-    access_type: 'offline',
-    scope: SCOPES,
-    prompt: 'consent'
-  }))
-);
+exports.authGoogleAPI = functions.https.onRequest((req, res) => res.redirect(oauth2Client.generateAuthUrl({access_type: 'offline', scope: SCOPES, prompt: 'consent'})));
 
 // after you grant access, you will be redirected to the URL for this Function
 // this Function stores the tokens to your Firebase database
