@@ -23,9 +23,30 @@ exports.handler = function(req, res, database, firestore) {
 
 var formEvent = function(payload) {
 
-  console.log("Form Submit - " + JSON.stringify(payload));
   payload.timestamp = new Date(payload.timestamp);
 
+  if (payload.triggerUid == 942883672) {
+    onFormSummit(payload);
+  } else {
+    console.log("Time-based Trigger - " + payload.timestamp);
+    var statusRef = db.collection('biblebot').doc('status');
+    statusRef.get().then(function(snapshot) {
+      var status = snapshot.data();
+      var userRef = db.collection('users').doc(status.nextUserId);
+      userRef.get().then(function(snapshot2) {
+        var user = snapshot2.data();
+        var message = user.username + '，\n今天是你當列車長喔！\n記得找時間來填金句列車~';
+        if (user.isFriend) {
+          pushMessage(user.userId, message);
+        }
+      });
+    });
+  }
+}
+
+var onFormSummit = function(payload) {
+
+  console.log("Form Submit - " + JSON.stringify(payload));
   var postRef = db.collection('posts').add(payload);
   var message = "[本日金句]\n\
 列車長 - " + payload.name + "\n明日列車長 - " + payload.next + "\n\n<" + payload.origin + ">\n" + payload.verse + "\n\n";
@@ -48,7 +69,7 @@ var formEvent = function(payload) {
   usersRef.where('username', '==', payload.name).get().then(function(qSnapshot) {
     qSnapshot.forEach(function(userDoc) {
       var user = userDoc.data();
-      console.log("Current - "+JSON.stringify(user.username));
+      console.log("Current - " + JSON.stringify(user.username));
       db.collection('users').doc(user.userId).update({
         lastSubmit: new Date(),
         submitCount: user.submitCount + 1
@@ -62,7 +83,7 @@ var formEvent = function(payload) {
     var promises = [];
     qSnapshot.forEach(function(userDoc) {
       var user = userDoc.data();
-      console.log("Next - "+JSON.stringify(user.username));
+      console.log("Next - " + JSON.stringify(user.username));
       var t = db.runTransaction(function(trans) {
         return trans.get(statusRef).then(function(snapshot) {
           var data = snapshot.data();
@@ -94,6 +115,15 @@ var lineEvent = function(event) {
 歡迎加入真愛團契金句列車。\n\
 你可以用這個對話框來上下車、改暱稱。"
       replyMessage(event.replyToken, response);
+      if (!profile.isFriend) {
+        db.collection('users').doc(profile.userId).update({isFriend: true});
+      }
+    });
+
+  } else if (event.type == "unfollow") {
+
+    getUserIdentity(event.source).then(function(profile) {
+      db.collection('users').doc(profile.userId).update({isFriend: false});
     });
 
   } else if (event.type == "join") {
@@ -149,7 +179,15 @@ var lineMessageEvent = function(event) {
 
   if (/[Hh]elp|幫助|功能/.test(text)) {
 
-    response = "Not Implemented Yet";
+    response = "如果要找我，在對話框中打'@BibleBot'&指示，就可以了!\n\n\
+我的功能列表如下：\n\
+=> 查詢功能：功能/幫助/Help\n\
+=> 更改暱稱：更改/Change\n\
+=> 呼叫表單：表單/Form\n\
+=> 查詢狀況：狀況/Status\n\
+=> 加入列車：加入/Join\n\
+=> 退出列車：離開/Leave\n\n\
+另外我在群組&私訊都可以運作喔，如果不希望在群組加入/退出列車，歡迎加我好友&私訊我喔！";
 
   } else if (/[Jj]oin|加入|上車/.test(text)) {
 
@@ -158,8 +196,10 @@ var lineMessageEvent = function(event) {
       var userRef = db.collection('users').doc(profile.userId);
       userRef.update({isEnabled: true}).then(function() {
         var response = profile.username + "，\n\
-歡迎搭乘金句列車!\n讓我們啟航吧!\n\n\
-請記得加我好友，我才能寄給你提醒訊息喔！";
+歡迎搭乘金句列車!\n讓我們啟航吧!";
+        if (event.source.type != "user" && !profile.isFriend) {
+          response += "\n\n請記得加我好友，我才能寄給你提醒訊息喔！"
+        }
         replyMessage(event.replyToken, response);
         formUpdate();
       });
@@ -177,7 +217,28 @@ var lineMessageEvent = function(event) {
       });
     });
 
-  } else if (/[Cc]hange|改[暱名]稱/.test(text)) {
+  } else if (/[Ss]tatus|狀況/.test(text)) {
+
+    asyncResponse = true;
+    db.collection('biblebot').doc('status').get().then(function(snapshot) {
+      var status = snapshot.data();
+      db.collection('users').where('isEnabled','==',true).get().then(function(qSnapshot) {
+        var users = [];
+        var nextUserName;
+        qSnapshot.forEach(function(userDoc) {
+          var user = userDoc.data();
+          if (user.userId == status.nextUserId) {
+            nextUserName = user.username;
+          }
+          users.push(user.username);
+        });
+        response = "[列車資訊]\n明日列車長 - " + nextUserName + "\n目前乘客 - " + users.join('、');
+
+        replyMessage(event.replyToken, response);
+      });
+    });
+
+  } else if (/[Cc]hange|更改|改[暱名]稱/.test(text)) {
 
     asyncResponse = true;
     getUserIdentity(event.source).then(function(profile) {
@@ -197,8 +258,22 @@ var lineMessageEvent = function(event) {
 
   } else if (/[Ff]orm|表單/.test(text)) {
 
-    // scriptFunction('aboard', 'me');
-    response = "Not Implemented Yet";
+    response = {
+      "type": "template",
+      "altText": "表單連結：https://goo.gl/forms/6Zu6kKf4aR0UczAH3",
+      "template": {
+        "type": "buttons",
+        "text": "真愛團契金句列車",
+        "thumbnailImageUrl": "https://lh3.googleusercontent.com/sg8XyC-IuDLkm27UpOPbbat1q3S2trJu85TGVuWeDLtVs5bKXbZxcLcOhJSZDGoi4zil98WBww",
+        "actions": [
+          {
+            "type": "uri",
+            "label": "開啟金句表單",
+            "uri": "https://goo.gl/forms/6Zu6kKf4aR0UczAH3"
+          }
+        ]
+      }
+    };
 
   } else if (/[Qq]&[Aa]|都給你問/.test(text)) {
 
@@ -208,7 +283,6 @@ var lineMessageEvent = function(event) {
   } else {
 
     asyncResponse = true;
-
     getUserIdentity(event.source).then(function(profile) {
 
       if (profile.chatState == 'changeName') {
@@ -239,7 +313,7 @@ var lineMessageEvent = function(event) {
         replyMessage(event.replyToken, response);
 
       } else {
-        response = "Not Implemented Yet";
+        response = profile.username +"，你在找我嗎？\n如果你不知道要問我甚麼，就從'@BibleBot 幫助'開始吧!";
         replyMessage(event.replyToken, response);
 
       }
@@ -315,6 +389,7 @@ var createUserIdentity = function(profile) {
   profile.username = profile.displayName;
   profile.chatState = 'normal';
   profile.isEnabled = false;
+  profile.isFriend = false;
   profile.lastSubmit = null;
   profile.submitCount = 0;
   return db.collection('users').doc(profile.userId).set(profile).then(function() {
@@ -325,9 +400,9 @@ var createUserIdentity = function(profile) {
 var formUpdate = function() {
   var usersRef = db.collection('users');
   var statusRef = db.collection('biblebot').doc('status');
-   statusRef.get().then(function(snapshot) {
+  statusRef.get().then(function(snapshot) {
     var status = snapshot.data();
-    usersRef.where('isEnabled','==',true).orderBy('lastSubmit').get().then(function(qSnapshot) {
+    usersRef.where('isEnabled', '==', true).orderBy('lastSubmit').get().then(function(qSnapshot) {
       var users = [];
       var nextUsers = [];
       qSnapshot.forEach(function(userDoc) {
@@ -339,7 +414,7 @@ var formUpdate = function() {
           nextUsers.push(user.username + " - " + daysAgo(user.lastSubmit));
         }
       });
-      scriptFunction("refresh", [users,nextUsers]);
+      scriptFunction("refresh", [users, nextUsers]);
     });
   });
 }

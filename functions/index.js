@@ -38,7 +38,7 @@ var googleClient = require('./keys/googleClientKey.json');
 const oauth2Client = new google.auth.OAuth2(googleClient.client_id, googleClient.client_secret, googleClient.redirect_uris);
 const DB_TOKEN_PATH = '/api_tokens';
 
-const SCOPES = ['https://www.googleapis.com/auth/forms', 'https://www.googleapis.com/auth/script.external_request'];
+const SCOPES = ['https://www.googleapis.com/auth/forms', 'https://www.googleapis.com/auth/script.external_request', 'https://www.googleapis.com/auth/script.scriptapp'];
 
 // visit the URL for this Function to obtain tokens
 exports.authGoogleAPI = functions.https.onRequest((req, res) => res.redirect(oauth2Client.generateAuthUrl({access_type: 'offline', scope: SCOPES, prompt: 'consent'})));
@@ -54,6 +54,7 @@ exports.OauthCallback = functions.https.onRequest((req, res) => {
       console.log(JSON.stringify(err));
       return res.status(400).send(err);
     }
+    dbRef.child('v2/'+DB_TOKEN_PATH).set(tokens).then(() => res.status(200).send('OK'));
     return dbRef.child(DB_TOKEN_PATH).set(tokens).then(() => res.status(200).send('OK'));
   });
 });
