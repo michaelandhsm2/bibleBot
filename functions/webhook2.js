@@ -220,7 +220,7 @@ var lineMessageEvent = function(event) {
     asyncResponse = true;
     db.collection('biblebot').doc('status').get().then(function(snapshot) {
       var status = snapshot.data();
-      db.collection('users').where('isEnabled','==',true).get().then(function(qSnapshot) {
+      db.collection('users').where('isEnabled', '==', true).get().then(function(qSnapshot) {
         var users = [];
         var nextUserName;
         qSnapshot.forEach(function(userDoc) {
@@ -311,7 +311,7 @@ var lineMessageEvent = function(event) {
         replyMessage(event.replyToken, response);
 
       } else {
-        response = profile.username +"，你在找我嗎？\n如果你不知道要問我甚麼，就從'@BibleBot 幫助'開始吧!";
+        response = profile.username + "，你在找我嗎？\n如果你不知道要問我甚麼，就從'@BibleBot 幫助'開始吧!";
         replyMessage(event.replyToken, response);
 
       }
