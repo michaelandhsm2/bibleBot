@@ -23,7 +23,7 @@ exports.webhook = functions.https.onRequest((req, res) => {
 
 exports.webhook2 = functions.https.onRequest((req, res) => {
   cors(req, res, () => {
-    webhook2Function.handler(req, res, admin.database(), dbFireStore);
+    webhook2Function.handler(req, res, admin.firestore());
   });
 });
 
@@ -54,7 +54,8 @@ exports.OauthCallback = functions.https.onRequest((req, res) => {
       console.log(JSON.stringify(err));
       return res.status(400).send(err);
     }
-    dbRef.child('v2/'+DB_TOKEN_PATH).set(tokens).then(() => res.status(200).send('OK'));
-    return dbRef.child(DB_TOKEN_PATH).set(tokens).then(() => res.status(200).send('OK'));
+
+    dbRef.child(DB_TOKEN_PATH).set(tokens);
+    return dbFireStore.collection('biblebot').doc('api_tokens').set(tokens).then(() => res.status(200).send('OK'));
   });
 });

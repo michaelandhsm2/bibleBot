@@ -1,8 +1,6 @@
-var realdbRef,
-  db;
+var db;
 
-exports.handler = function(req, res, database, firestore) {
-  realdbRef = database.ref('v2');
+exports.handler = function(req, res, firestore) {
   db = firestore;
 
   if (req.body.events) {
@@ -444,7 +442,6 @@ var {
 } = require('googleapis');
 var googleClient = require('./keys/googleClientKey.json');
 const oauth2Client = new google.auth.OAuth2(googleClient.client_id, googleClient.client_secret, googleClient.redirect_uris);
-const DB_TOKEN_PATH = '/api_tokens';
 
 let oauthTokens = null;
 const script = google.script('v1');
@@ -456,8 +453,8 @@ var authorize = function() {
     if (oauthTokens) {
       return resolve(oauth2Client);
     } else {
-      return realdbRef.child(DB_TOKEN_PATH).once('value').then((snapshot) => {
-        oauthTokens = snapshot.val();
+      return db.collection('biblebot').doc('api_tokens').get().then((snapshot) => {
+        oauthTokens = snapshot.data();
         oauth2Client.setCredentials(oauthTokens);
         return resolve(oauth2Client);
       }).catch(() => reject());
