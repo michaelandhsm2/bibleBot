@@ -37,6 +37,7 @@ var formEvent = function(payload) {
         if (user.isFriend) {
           pushMessage(user.userId, message);
         }
+        formUpdate();
       });
     });
   }
@@ -49,7 +50,7 @@ var onFormSummit = function(payload) {
   var message = "[本日金句]\n\
 列車長 - " + payload.name + "\n明日列車長 - " + payload.next + "\n\n<" + payload.origin + ">\n" + payload.verse + "\n\n";
   if (payload.comments != "") {
-    message += "心得：\n" + payload.comments + "\n\n";
+    message += "心得：\n" + payload.comments;
   }
 
   //Send line message to all groups

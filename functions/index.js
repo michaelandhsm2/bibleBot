@@ -11,14 +11,13 @@ const cors = require('cors')({origin: true});
 
 admin.initializeApp({credential: admin.credential.cert(serviceAccount), databaseURL: "https://biblebot-f4704.firebaseio.com"});
 
-const dbRef = admin.database().ref();
 const dbFireStore = admin.firestore();
 
 const webhookFunction = require('./webhook');
 const webhook2Function = require('./webhook2');
 
 exports.webhook = functions.https.onRequest((req, res) => {
-  webhookFunction.handler(req, res, admin.database());
+  webhookFunction.handler(req, res, admin.firestore());
 });
 
 exports.webhook2 = functions.https.onRequest((req, res) => {
@@ -55,7 +54,6 @@ exports.OauthCallback = functions.https.onRequest((req, res) => {
       return res.status(400).send(err);
     }
 
-    dbRef.child(DB_TOKEN_PATH).set(tokens);
     return dbFireStore.collection('biblebot').doc('api_tokens').set(tokens).then(() => res.status(200).send('OK'));
   });
 });
