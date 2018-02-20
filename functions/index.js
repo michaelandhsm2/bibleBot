@@ -11,10 +11,11 @@ const cors = require('cors')({origin: true});
 
 admin.initializeApp({credential: admin.credential.cert(serviceAccount), databaseURL: "https://biblebot-f4704.firebaseio.com"});
 
-const dbFireStore = admin.firestore();
+const db = admin.firestore();
 
 const webhookFunction = require('./webhook');
 const webhook2Function = require('./webhook2');
+const firestoreFunctions = require('./fsfunc');
 
 exports.webhook = functions.https.onRequest((req, res) => {
   webhookFunction.handler(req, res, admin.firestore());
@@ -24,6 +25,26 @@ exports.webhook2 = functions.https.onRequest((req, res) => {
   cors(req, res, () => {
     webhook2Function.handler(req, res, admin.firestore());
   });
+});
+
+exports.postSubmitted = functions.firestore.document('posts/{postId}').onCreate(function(event) {
+  if ((Date.now() - Date.parse(event.timestamp)) > 15000) {
+    console.log(`Dropping event ${event} with age[ms]: ${eventAgeMs}`);
+    callback();
+    return;
+  } else {
+    return firestoreFunctions.postSubmitted(admin.firestore(), event.data.data());
+  }
+});
+
+exports.userWritten = functions.firestore.document('users/{userId}').onWrite(function(event) {
+  if ((Date.now() - Date.parse(event.timestamp)) > 15000) {
+    console.log(`Dropping event ${event} with age[ms]: ${eventAgeMs}`);
+    callback();
+    return;
+  } else {
+    return firestoreFunctions.formUpdate(admin.firestore());
+  }
 });
 
 //
@@ -54,6 +75,6 @@ exports.OauthCallback = functions.https.onRequest((req, res) => {
       return res.status(400).send(err);
     }
 
-    return dbFireStore.collection('biblebot').doc('api_tokens').set(tokens).then(() => res.status(200).send('OK'));
+    return db.collection('biblebot').doc('api_tokens').set(tokens).then(() => res.status(200).send('OK'));
   });
 });
