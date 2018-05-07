@@ -2,14 +2,13 @@
 const functions = require('firebase-functions');
 
 // The Firebase Admin SDK to access the Firebase Realtime Database.
-var admin = require("firebase-admin");
-var serviceAccount = require("./keys/serviceAccountKey.json");
+const admin = require('firebase-admin');
+// const serviceAccount = require('./keys/serviceAccountKey.json');
 
 // Install related npm modules - npm install @line/bot-sdk cors axios -save
-const axios = require('axios');
-const cors = require('cors')({origin: true});
+const cors = require('cors')({ origin: true });
 
-admin.initializeApp({credential: admin.credential.cert(serviceAccount), databaseURL: "https://biblebot-f4704.firebaseio.com"});
+admin.initializeApp();
 
 const db = admin.firestore();
 
@@ -27,20 +26,20 @@ exports.webhook2 = functions.https.onRequest((req, res) => {
   });
 });
 
-exports.postSubmitted = functions.firestore.document('posts/{postId}').onCreate(function(event) {
-  if ((Date.now() - Date.parse(event.timestamp)) > 15000) {
-    console.log(`Dropping event ${event} with age[ms]: ${eventAgeMs}`);
-    callback();
-    return;
-  } else {
-    return firestoreFunctions.postSubmitted(admin.firestore(), event.data.data());
-  }
+exports.postSubmitted = functions.firestore
+  .document('posts/{postId}')
+  .onCreate((snap, context) => {
+    if ((Date.now() - Date.parse(context.timestamp)) > 15000) {
+      console.log(`Dropping event 'postSubmitted' with age[ms]: ${(Date.now() - Date.parse(context.timestamp))}`);
+      return;
+    } else {
+      return firestoreFunctions.postSubmitted(admin.firestore(), snap.data());
+    }
 });
 
-exports.userWritten = functions.firestore.document('users/{userId}').onWrite(function(event) {
-  if ((Date.now() - Date.parse(event.timestamp)) > 15000) {
-    console.log(`Dropping event ${event} with age[ms]: ${eventAgeMs}`);
-    callback();
+exports.userWritten = functions.firestore.document('users/{userId}').onWrite(function(snap, context) {
+  if ((Date.now() - Date.parse(context.timestamp)) > 15000) {
+    console.log(`Dropping event 'userWritten' with age[ms]: ${(Date.now() - Date.parse(context.timestamp))}`);
     return;
   } else {
     return firestoreFunctions.formUpdate(admin.firestore());
@@ -51,23 +50,32 @@ exports.userWritten = functions.firestore.document('users/{userId}').onWrite(fun
 //
 //
 
-var {
-  google
-} = require('googleapis');
-var googleClient = require('./keys/googleClientKey.json');
-const oauth2Client = new google.auth.OAuth2(googleClient.client_id, googleClient.client_secret, googleClient.redirect_uris);
-const DB_TOKEN_PATH = '/api_tokens';
+const { google } = require('googleapis');
+const googleClient = require('./keys/googleClientKey.json');
+
+const oauth2Client = new google.auth.OAuth2(
+  googleClient.client_id,
+  googleClient.client_secret,
+  googleClient.redirect_uris
+);
+// const DB_TOKEN_PATH = '/api_tokens';
+
 
 const SCOPES = ['https://www.googleapis.com/auth/forms', 'https://www.googleapis.com/auth/script.external_request', 'https://www.googleapis.com/auth/script.scriptapp'];
 
 // visit the URL for this Function to obtain tokens
-exports.authGoogleAPI = functions.https.onRequest((req, res) => res.redirect(oauth2Client.generateAuthUrl({access_type: 'offline', scope: SCOPES, prompt: 'consent'})));
+exports.authGoogleAPI = functions.https.onRequest((req, res) =>
+  res.redirect(oauth2Client.generateAuthUrl({
+    access_type: 'offline',
+    scope: SCOPES,
+    prompt: 'consent',
+  })));
 
 // after you grant access, you will be redirected to the URL for this Function
 // this Function stores the tokens to your Firebase database
 exports.OauthCallback = functions.https.onRequest((req, res) => {
   console.log(JSON.stringify(req.query));
-  const code = req.query.code;
+  const { code } = req.query;
   oauth2Client.getToken(code, (err, tokens) => {
     // Now tokens contains an access_token and an optional refresh_token. Save them.
     if (err) {

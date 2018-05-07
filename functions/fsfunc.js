@@ -1,22 +1,23 @@
-var db;
+let db;
 
-exports.postSubmitted = function(firestore, payload) {
+exports.postSubmitted = function postSubmitted(firestore, payload) {
+  // var promises = [];
+
+  const usersRef = db.collection('users');
+  const statusRef = db.collection('biblebot').doc('status');
+
   db = firestore;
-  var promises = [];
 
-  var usersRef = db.collection('users');
-  var statusRef = db.collection('biblebot').doc('status');
-
-  var idNext = usersRef.where('username', '==', payload.next).get().then(function(qSnapshot) {
-    var localPromises = [];
-    qSnapshot.forEach(function(userDoc) {
-      var user = userDoc.data();
-      console.log("Next - " + JSON.stringify(user.username));
-      var u = statusRef.update({nextUserId: user.userId});
+  const idNext = usersRef.where('username', '==', payload.next).get().then((qSnapshot) => {
+    const localPromises = [];
+    qSnapshot.forEach((userDoc) => {
+      const user = userDoc.data();
+      console.log(`Next - ${JSON.stringify(user.username)}`);
+      const u = statusRef.update({ nextUserId: user.userId });
       localPromises.push(u);
     });
     return Promise.all(localPromises);
-  })
+  });
 
   return idNext.then(function(){
     usersRef.where('username', '==', payload.name).get().then(function(qSnapshot) {
