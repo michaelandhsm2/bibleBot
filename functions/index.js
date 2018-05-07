@@ -1,9 +1,7 @@
 // The Cloud Functions for Firebase SDK to create Cloud Functions and setup triggers.
-const functions = require('firebase-functions');
-
 // The Firebase Admin SDK to access the Firebase Realtime Database.
+const functions = require('firebase-functions');
 const admin = require('firebase-admin');
-// const serviceAccount = require('./keys/serviceAccountKey.json');
 
 // Install related npm modules - npm install @line/bot-sdk cors axios -save
 const cors = require('cors')({ origin: true });
@@ -13,37 +11,30 @@ admin.initializeApp();
 const db = admin.firestore();
 
 const webhookFunction = require('./webhook');
-const webhook2Function = require('./webhook2');
 const firestoreFunctions = require('./fsfunc');
 
 exports.webhook = functions.https.onRequest((req, res) => {
-  webhookFunction.handler(req, res, admin.firestore());
-});
-
-exports.webhook2 = functions.https.onRequest((req, res) => {
   cors(req, res, () => {
-    webhook2Function.handler(req, res, admin.firestore());
+    webhookFunction.handler(req, res, admin.firestore());
   });
 });
 
 exports.postSubmitted = functions.firestore
   .document('posts/{postId}')
   .onCreate((snap, context) => {
-    if ((Date.now() - Date.parse(context.timestamp)) > 15000) {
-      console.log(`Dropping event 'postSubmitted' with age[ms]: ${(Date.now() - Date.parse(context.timestamp))}`);
-      return;
-    } else {
+    if ((Date.now() - Date.parse(context.timestamp)) <= 15000) {
       return firestoreFunctions.postSubmitted(admin.firestore(), snap.data());
     }
-});
+    console.log(`Dropping event 'postSubmitted' with age[ms]: ${(Date.now() - Date.parse(context.timestamp))}`);
+    return null;
+  });
 
-exports.userWritten = functions.firestore.document('users/{userId}').onWrite(function(snap, context) {
-  if ((Date.now() - Date.parse(context.timestamp)) > 15000) {
-    console.log(`Dropping event 'userWritten' with age[ms]: ${(Date.now() - Date.parse(context.timestamp))}`);
-    return;
-  } else {
+exports.userWritten = functions.firestore.document('users/{userId}').onWrite((snap, context) => {
+  if ((Date.now() - Date.parse(context.timestamp)) <= 15000) {
     return firestoreFunctions.formUpdate(admin.firestore());
   }
+  console.log(`Dropping event 'userWritten' with age[ms]: ${(Date.now() - Date.parse(context.timestamp))}`);
+  return null;
 });
 
 //

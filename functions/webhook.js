@@ -1,126 +1,136 @@
-var db;
+let db;
 
-exports.handler = function(req, res, firestore) {
+exports.handler = (req, res, firestore) => {
   db = firestore;
+  const promises = [];
 
   if (req.body.events) {
-    var events = req.body.events;
-
-    events.forEach(function(event) {
-      console.log("Event - " + JSON.stringify(event));
+    const { events } = req.body;
+    events.forEach((event) => {
+      console.log(`Event - ${JSON.stringify(event)}`);
       lineEvent(event);
     });
   } else if (req.body.timestamp) {
-    formEvent(req.body);
+    promises.push(formEvent(req.body));
   } else {
-    console.log("Body - " + JSON.stringify(req.body));
+    console.log(`Body - ${JSON.stringify(req.body)}`);
   }
 
-  res.status(200).send();
-}
+  Promise.all(promises).then(() => {
+    res.status(200).send();
+  });
+};
 
-var formEvent = function(payload) {
+function formEvent(payload) {
+  const localPayload = payload;
+  localPayload.timestamp = new Date(payload.timestamp);
 
-  payload.timestamp = new Date(payload.timestamp);
+  if (localPayload.triggerUid === '942883672') {
+    return onFormSummit(localPayload);
+  }
 
-  if (payload.triggerUid == 942883672) {
-    onFormSummit(payload);
-  } else {
-    console.log("Time-based Trigger - " + payload.timestamp);
-    var statusRef = db.collection('biblebot').doc('status');
-    statusRef.get().then(function(snapshot) {
-      var status = snapshot.data();
-      var userRef = db.collection('users').doc(status.nextUserId);
-      userRef.get().then(function(snapshot2) {
-        var user = snapshot2.data();
-        var message = user.username + '，\n今天是你當列車長喔！\n記得找時間來填金句列車~';
+  console.log(`Time-based Trigger - ${localPayload.timestamp}`);
+  const statusRef = db.collection('biblebot').doc('status');
+  return statusRef.get().then((snapshot) => {
+    const status = snapshot.data();
+    const userRef = db.collection('users').doc(status.nextUserId);
+    return userRef.get().then((snapshot2) => {
+      const user = snapshot2.data();
+      const localPromises = [];
+      if (user.isEnabled) {
+        const message = `${user.username}，\n今天是你當列車長喔！\n記得找時間來填金句列車~`;
         if (user.isFriend) {
-          pushMessage(user.userId, message);
+          localPromises.push(pushMessage(user.userId, message));
         }
-      });
-    });
-  }
-}
-
-var onFormSummit = function(payload) {
-
-  console.log("Form Submit - " + JSON.stringify(payload));
-  var postRef = db.collection('posts').add(payload);
-  var message = "[本日金句]\n\
-列車長 - " + payload.name + "\n明日列車長 - " + payload.next + "\n\n<" + payload.origin + ">\n" + payload.verse + "\n\n";
-  if (payload.comments != "") {
-    message += "心得：\n" + payload.comments + "\n\n";
-  }
-
-  //Send line message to all groups
-  var groupsRef = db.collection('groups');
-  groupsRef.get().then(function(qSnapshot) {
-    qSnapshot.forEach(function(groupDoc) {
-      var group = groupDoc.data();
-      pushMessage(group.id, message);
-      console.log("Post delivered to " + group.name);
-    });
-  });
-
-  //Identify current
-  var usersRef = db.collection('users');
-  usersRef.where('username', '==', payload.name).get().then(function(qSnapshot) {
-    qSnapshot.forEach(function(userDoc) {
-      var user = userDoc.data();
-      console.log("Current - " + JSON.stringify(user.username));
-      db.collection('users').doc(user.userId).update({
-        lastSubmit: new Date(),
-        submitCount: user.submitCount + 1
-      });
-    });
-  });
-
-  //Identify Next
-  var statusRef = db.collection('biblebot').doc('status');
-  usersRef.where('username', '==', payload.next).get().then(function(qSnapshot) {
-    var promises = [];
-    qSnapshot.forEach(function(userDoc) {
-      var user = userDoc.data();
-      console.log("Next - " + JSON.stringify(user.username));
-      var t = db.runTransaction(function(trans) {
-        return trans.get(statusRef).then(function(snapshot) {
-          var data = snapshot.data();
-          var newCount = data.postCount + 1;
-          trans.update(statusRef, {
-            postCount: newCount,
-            nextUserId: user.userId
-          });
-        });
-      });
-      promises.push(t);
-    });
-    Promise.all(promises).then(formUpdate);
-  });
-}
-
-var lineEvent = function(event) {
-  if (event.type == "message" && event.message.type == "text") {
-
-    if (event.source.type == "user" || /@.*[Bb]ible *[Bb]ot/.test(event.message.text)) {
-      lineMessageEvent(event);
-    }
-
-  } else if (event.type == "follow") {
-
-    getUserIdentity(event.source).then(function(profile) {
-      var response = "\
-哈囉，" + profile.username + "。\n\
-歡迎加入真愛團契金句列車。\n\
-你可以用這個對話框來上下車、改暱稱。"
-      replyMessage(event.replyToken, response);
-      if (!profile.isFriend) {
-        db.collection('users').doc(profile.userId).update({isFriend: true});
+        localPromises.push(userRef.update({
+          remindCount: user.remindCount + 1,
+        }));
+      } else {
+        const message = `${user.username}跳槽了，認命吧 WWW`;
+        localPromises.push(statusRef.update({ nextUserId: 'U8d37399db825fc670ff411a7aec672eb' }));
+        localPromises.push(pushMessage('U8d37399db825fc670ff411a7aec672eb', message));
       }
+      return Promise.all(localPromises);
+    });
+  });
+}
+
+function onFormSummit(payload) {
+  console.log(`Form Submit - ${JSON.stringify(payload)}`);
+  db.collection('posts').add(payload);
+
+  let message = `\
+[本日金句]
+列車長 - ${payload.name}
+明日列車長 - " ${payload.next}
+<${payload.origin}>
+${payload.verse}
+`;
+  message += (payload.comments !== '') ? '' : `心得:\n${payload.comments}`;
+
+  // Send line message to all groups
+  const groupsRef = db.collection('groups');
+
+  return groupsRef.get().then((qSnapshot) => {
+    const promises = [];
+    qSnapshot.forEach((groupDoc) => {
+      const group = groupDoc.data();
+      const sendMsg = pushMessage(group.id, message).then(() => {
+        console.log(`Post delivered to ${group.name}`);
+      });
+      promises.push(sendMsg);
+    });
+    return Promise.all(promises);
+  });
+}
+
+function lineEvent(event) {
+  if (event.type === 'message' && event.message.type === 'text') {
+    if (event.source.type === 'user' || /@.*[Bb]ible *[Bb]ot/.test(event.message.text)) {
+      return lineMessageEvent(event);
+    }
+  } else if (event.type === 'follow') {
+    return getUserIdentity(event.source).then((profile) => {
+      const localPromises = [];
+      let response = `\
+哈囉，${profile.username}。
+我是金句列車機器人BibleBot。
+你可以用這個對話框來上下車、改暱稱。`;
+      if(!profile.isEnabled){
+        response = {
+          type: "template",
+          altText: "哈囉，" + profile.username + "。\n我是金句列車機器人BibleBot。\n你可以用這個對話框來上下車、改暱稱。",
+          template: {
+            type: "confirm",
+            text: "哈囉，" + profile.username + "。\n我是金句列車機器人BibleBot。\n請問你要搭上金句列車嗎？",
+            actions: [
+              {
+                type: "postback",
+                label: "好啊",
+                data: JSON.stringify({action: "joinConfirm", result: true, userId: profile.userId, name: profile.username}),
+                displayText: "好啊"
+              }, {
+                type: "postback",
+                label: "先不要好了",
+                data: JSON.stringify({action: "joinConfirm", result: false, userId: profile.userId, name: profile.username}),
+                displayText: "先不要好了"
+              }
+            ]
+          }
+        };
+      }
+
+      localPromises.push(replyMessage(event.replyToken, response));
+      if (!profile.isFriend) {
+        var u = db.collection('users').doc(profile.userId).update({isFriend: true});
+        localPromises.push(u);
+      }
+      return Promise.all(localPromises);
     });
 
   } else if (event.type == "unfollow") {
 
-    getUserIdentity(event.source).then(function(profile) {
+    return getUserIdentity(event.source).then(function(profile) {
       db.collection('users').doc(profile.userId).update({isFriend: false});
     });
 
@@ -132,17 +142,18 @@ var lineEvent = function(event) {
     } else {
       multiId = event.source.roomId;
     }
+
     var groupRef = db.collection('groups').doc(multiId);
-    groupRef.set({id: multiId, type: event.source.type, name: "Unknown", timestamp: new Date()}).then(function() {
+    return groupRef.set({id: multiId, type: event.source.type, name: "Unknown", timestamp: new Date()}).then(function() {
       var response = "哈囉~\n\
 我是金句列車機器人BibleBot。\n\
 如果你不知道要問我甚麼，就從'@BibleBot 幫助'開始吧!";
-      replyMessage(event.replyToken, response);
+      return replyMessage(event.replyToken, response);
     });
 
   } else if (event.type == "leave") {
 
-    var groupRef = db.collection('groups').doc(event.source.groupId).delete();
+    return db.collection('groups').doc(event.source.groupId).delete();
 
   } else if (event.type == "postback") {
 
@@ -153,24 +164,30 @@ var lineEvent = function(event) {
       if (data.action == "changeNameConfirm") {
         if (data.result) {
           var userRef = db.collection('users').doc(event.source.userId);
-          userRef.update({chatState: 'normal', username: data.name}).then(function() {
+          return userRef.update({chatState: 'normal', username: data.name}).then(function() {
             var response = data.name + "，\n你的暱稱更新完成了！";
-            replyMessage(event.replyToken, response);
-            formUpdate();
+            return replyMessage(event.replyToken, response);
           });
         } else {
           var response = "那請再輸入一次希望的名稱。"
-          replyMessage(event.replyToken, response);
+          return replyMessage(event.replyToken, response);
         }
+      }else if(data.action == "joinConfirm"){
+        var userRef = db.collection('users').doc(event.source.userId);
+        var response = "沒問題，\n你想要加入時在下面輸入'加入'或'Join'即可~"
+        if (data.result) {
+          response = data.name + "，\n歡迎搭乘金句列車!\n讓我們啟航吧!";
+        }
+        return userRef.update({isEnabled: data.result}).then(function() {
+          return replyMessage(event.replyToken, response);
+        });
       }
-
     }
-
+    return Promise.resolve();
   }
-
 }
 
-var lineMessageEvent = function(event) {
+function lineMessageEvent(event) {
   var response = "";
   var text = event.message.text;
   var asyncResponse = false;
@@ -190,37 +207,35 @@ var lineMessageEvent = function(event) {
   } else if (/[Jj]oin|加入|上車/.test(text)) {
 
     asyncResponse = true;
-    getUserIdentity(event.source).then(function(profile) {
+    return getUserIdentity(event.source).then(function(profile) {
       var userRef = db.collection('users').doc(profile.userId);
-      userRef.update({isEnabled: true}).then(function() {
+      return userRef.update({isEnabled: true}).then(function() {
         var response = profile.username + "，\n\
 歡迎搭乘金句列車!\n讓我們啟航吧!";
         if (event.source.type != "user" && !profile.isFriend) {
           response += "\n\n請記得加我好友，我才能寄給你提醒訊息喔！"
         }
-        replyMessage(event.replyToken, response);
-        formUpdate();
+        return replyMessage(event.replyToken, response);
       });
     });
 
   } else if (/[Ll]eave|離開|下車/.test(text)) {
 
     asyncResponse = true;
-    getUserIdentity(event.source).then(function(profile) {
+    return getUserIdentity(event.source).then(function(profile) {
       var userRef = db.collection('users').doc(profile.userId);
-      userRef.update({isEnabled: false}).then(function() {
+      return userRef.update({isEnabled: false}).then(function() {
         var response = profile.username + "，\n謝謝您搭乘金句列車!\n讓我們有空時再會!";
-        replyMessage(event.replyToken, response);
-        formUpdate();
+        return replyMessage(event.replyToken, response);
       });
     });
 
   } else if (/[Ss]tatus|狀況/.test(text)) {
 
     asyncResponse = true;
-    db.collection('biblebot').doc('status').get().then(function(snapshot) {
+    return db.collection('biblebot').doc('status').get().then(function(snapshot) {
       var status = snapshot.data();
-      db.collection('users').where('isEnabled', '==', true).get().then(function(qSnapshot) {
+      return db.collection('users').where('isEnabled', '==', true).get().then(function(qSnapshot) {
         var users = [];
         var nextUserName;
         qSnapshot.forEach(function(userDoc) {
@@ -232,16 +247,16 @@ var lineMessageEvent = function(event) {
         });
         response = "[列車資訊]\n明日列車長 - " + nextUserName + "\n目前乘客 - " + users.join('、');
 
-        replyMessage(event.replyToken, response);
+        return replyMessage(event.replyToken, response);
       });
     });
 
   } else if (/[Cc]hange|更改|改[暱名]稱/.test(text)) {
 
     asyncResponse = true;
-    getUserIdentity(event.source).then(function(profile) {
+    return getUserIdentity(event.source).then(function(profile) {
       var userRef = db.collection('users').doc(profile.userId);
-      userRef.update({chatState: 'changeName'}).then(function() {
+      return userRef.update({chatState: 'changeName'}).then(function() {
         var response = profile.username + "，\n請輸入你新的暱稱：\n\n\
 若你在群組，請在名稱前打'@BibleBot'並空一格\n\
 例：@BibleBot Michael";
@@ -251,7 +266,6 @@ var lineMessageEvent = function(event) {
 
   } else if (/[Ww]eb|網頁|過去金句|金句/.test(text)) {
 
-    // scriptFunction('aboard', 'me');
     response = "Not Implemented Yet";
 
   } else if (/[Ff]orm|表單/.test(text)) {
@@ -275,87 +289,90 @@ var lineMessageEvent = function(event) {
 
   } else if (/[Qq]&[Aa]|都給你問/.test(text)) {
 
-    // scriptFunction('aboard', 'me');
     response = "Not Implemented Yet";
 
   } else {
 
     asyncResponse = true;
-    getUserIdentity(event.source).then(function(profile) {
+    return getUserIdentity(event.source).then(function(profile) {
 
       if (profile.chatState == 'changeName') {
 
-        //TODO: Prevent username duplication
         var name = text.replace(/@.*[Bb]ible *[Bb]ot */, "");
-        response = {
-          type: "template",
-          altText: "請用手機看 QQ，\n電腦沒辦法看按鈕 WWW",
-          template: {
-            type: "confirm",
-            text: profile.username + "，\n你確定要把名稱換成 '" + name + "' 嗎？",
-            actions: [
-              {
-                type: "postback",
-                label: "是的",
-                data: JSON.stringify({action: "changeNameConfirm", result: true, userId: profile.userId, name: name}),
-                displayText: "是的，我希望把名稱改成 '" + name + "'"
-              }, {
-                type: "postback",
-                label: "不要",
-                data: JSON.stringify({action: "changeNameConfirm", result: false, userId: profile.userId, name: name}),
-                displayText: "不要"
+        return db.collection('users').where('username', '==', name).get().then(function(qSnapshot) {
+
+          if (qSnapshot.empty) {
+            response = {
+              type: "template",
+              altText: "請用手機看 QQ，\n電腦沒辦法看按鈕 WWW",
+              template: {
+                type: "confirm",
+                text: profile.username + "，\n你確定要把名稱換成 '" + name + "' 嗎？",
+                actions: [
+                  {
+                    type: "postback",
+                    label: "是的",
+                    data: JSON.stringify({action: "changeNameConfirm", result: true, userId: profile.userId, name: name}),
+                    displayText: "是的，我希望把名稱改成 '" + name + "'"
+                  }, {
+                    type: "postback",
+                    label: "不要",
+                    data: JSON.stringify({action: "changeNameConfirm", result: false, userId: profile.userId, name: name}),
+                    displayText: "不要"
+                  }
+                ]
               }
-            ]
+            }
+          } else {
+            response = profile.username + "，\n這個名字已經有人使用了，請再輸入其他的名稱。";
           }
-        };
-        replyMessage(event.replyToken, response);
+
+          return replyMessage(event.replyToken, response);
+        });
 
       } else {
-        response = profile.username + "，你在找我嗎？\n如果你不知道要問我甚麼，就從'@BibleBot 幫助'開始吧!";
-        replyMessage(event.replyToken, response);
-
+        response = `\
+${profile.username}，你在找我嗎？
+如果你不知道要問我甚麼，就從'@BibleBot 幫助'開始吧!`;
+        return replyMessage(event.replyToken, response);
       }
-
     });
-
   }
 
   if (!asyncResponse) {
-    replyMessage(event.replyToken, response);
+    return replyMessage(event.replyToken, response);
   }
-
 }
 
 //  Line-Related Functions
 //
 const line = require('@line/bot-sdk');
-var lineAccount = require("./keys/lineKey.json");
+const lineAccount = require('./keys/lineKey.json');
+
 const client = new line.Client(lineAccount);
 
-var replyMessage = function(replyToken, message) {
-  client.replyMessage(replyToken, processMessage(message)).then(function() {
-    //res.status(200).send();
-  }).catch(function(err) {
-    console.log(err);
-  });
+function replyMessage(replyToken, message) {
+  return client.replyMessage(replyToken, processMessage(message))
+    .catch((err) => {
+      console.log(err);
+    });
 }
 
-var pushMessage = function(recieverId, message) {
-  client.pushMessage(recieverId, processMessage(message)).then(function() {
-    //res.status(200).send();
-  }).catch(function(err) {
-    console.log(err);
-  });
+function pushMessage(recieverId, message) {
+  return client.pushMessage(recieverId, processMessage(message))
+    .catch((err) => {
+      console.log(err);
+    });
 }
 
-var processMessage = function(message) {
-  var processedMessage = {};
+function processMessage(message) {
+  let processedMessage;
   if (typeof message === 'object') {
     processedMessage = message;
   } else {
     processedMessage = {
       type: 'text',
-      text: message
+      text: message,
     };
   }
   return (processedMessage);
@@ -364,18 +381,21 @@ var processMessage = function(message) {
 //
 //  Project Based Funcitons\  Retrieves user object with lineId
 
-var getUserIdentity = function(source) {
-  var userRef = db.collection('users').doc(source.userId);
-  return userRef.get().then(function(snapshot) {
+function getUserIdentity(source) {
+  const userRef = db.collection('users').doc(source.userId);
+  return userRef.get().then((snapshot) => {
     if (!snapshot.exists) {
-      console.log("Retrieve user info from Line.");
+      console.log('Retrieve user info from Line.');
       switch (source.type) {
         case 'room':
-          return client.getRoomMemberProfile(source.roomId, source.userId).then(createUserIdentity);
+          return client.getRoomMemberProfile(source.roomId, source.userId)
+            .then(createUserIdentity);
         case 'group':
-          return client.getGroupMemberProfile(source.groupId, source.userId).then(createUserIdentity);
+          return client.getGroupMemberProfile(source.groupId, source.userId)
+            .then(createUserIdentity);
         default:
-          return client.getProfile(source.userId).then(createUserIdentity);
+          return client.getProfile(source.userId)
+            .then(createUserIdentity);
       }
     } else {
       return snapshot.data();
@@ -383,131 +403,14 @@ var getUserIdentity = function(source) {
   });
 }
 
-var createUserIdentity = function(profile) {
-  profile.username = profile.displayName;
-  profile.chatState = 'normal';
-  profile.isEnabled = false;
-  profile.isFriend = false;
-  profile.lastSubmit = null;
-  profile.submitCount = 0;
-  return db.collection('users').doc(profile.userId).set(profile).then(function() {
-    return profile;
-  });
-}
-
-var formUpdate = function() {
-  var usersRef = db.collection('users');
-  var statusRef = db.collection('biblebot').doc('status');
-  statusRef.get().then(function(snapshot) {
-    var status = snapshot.data();
-    usersRef.where('isEnabled', '==', true).orderBy('lastSubmit').get().then(function(qSnapshot) {
-      var users = [];
-      var nextUsers = [];
-      qSnapshot.forEach(function(userDoc) {
-        var user = userDoc.data();
-        if (user.userId == status.nextUserId) {
-          users.unshift(user.username);
-        } else {
-          users.push(user.username);
-          nextUsers.push(user.username + " - " + daysAgo(user.lastSubmit));
-        }
-      });
-      scriptFunction("refresh", [users, nextUsers]);
-    });
-  });
-}
-
-var daysAgo = function(lastSubmit) {
-  if (!lastSubmit) {
-    return ("Never");
-  } else {
-    var today = new Date();
-    lastSubmit.setHours(0, 0, 0, 0);
-    var daysDiff = Math.floor((today - lastSubmit) / (24 * 60 * 60 * 1000));
-    if (daysDiff > 1) {
-      return (daysDiff + " days ago");
-    } else if (daysDiff == 1) {
-      return ("Yesterday");
-    } else {
-      return ("Today");
-    }
-  }
-}
-
-//
-//Google Script API related functions
-
-var {
-  google
-} = require('googleapis');
-var googleClient = require('./keys/googleClientKey.json');
-const oauth2Client = new google.auth.OAuth2(googleClient.client_id, googleClient.client_secret, googleClient.redirect_uris);
-
-let oauthTokens = null;
-const script = google.script('v1');
-const scriptId = 'MYMsBbjHC6NN37LwMegmeuj5Vpmfnj_hu';
-
-var authorize = function() {
-  // Check if we have previously stored a token.
-  return new Promise((resolve, reject) => {
-    if (oauthTokens) {
-      return resolve(oauth2Client);
-    } else {
-      return db.collection('biblebot').doc('api_tokens').get().then((snapshot) => {
-        oauthTokens = snapshot.data();
-        oauth2Client.setCredentials(oauthTokens);
-        return resolve(oauth2Client);
-      }).catch(() => reject());
-    }
-  });
-}
-
-var callAppsScript = function(auth, setting) {
-
-  // Make the API request. The request object is included here as 'resource'.
-  script.scripts.run(setting, function(err, resp) {
-    if (err) {
-      // The API encountered a problem before the script started executing.
-      console.log('The API returned an error: ' + err);
-      return;
-    }
-    if (resp.error) {
-      // The API executed, but the script returned an error.
-
-      // Extract the first (and only) set of error details. The values of this
-      // object are the script's 'errorMessage' and 'errorType', and an array
-      // of stack trace elements.
-      var error = resp.error.details[0];
-      console.log('Script error message: ' + error.errorMessage);
-      console.log('Script error stacktrace:');
-
-      if (error.scriptStackTraceElements) {
-        // There may not be a stacktrace if the script didn't start executing.
-        for (var i = 0; i < error.scriptStackTraceElements.length; i++) {
-          var trace = error.scriptStackTraceElements[i];
-          console.log('\t%s: %s', trace.function, trace.lineNumber);
-        }
-      }
-    }
-  });
-}
-
-var scriptFunction = function(functionName, functionParameters) {
-  if (!Array.isArray(functionParameters)) {
-    functionParameters = [functionParameters];
-  }
-  console.log("Script Function - " + functionName + " : " + functionParameters);
-  return authorize().then(function(auth) {
-    callAppsScript(auth, {
-      auth: auth,
-      resource: {
-        function: functionName,
-        parameters: functionParameters,
-        devMode: false
-      },
-      scriptId: scriptId
-    });
-  }).catch(function(error) {
-    console.log(error);
-  });
+function createUserIdentity(profile) {
+  const localProfile = profile;
+  localProfile.username = profile.displayName;
+  localProfile.chatState = 'normal';
+  localProfile.isEnabled = false;
+  localProfile.isFriend = false;
+  localProfile.lastSubmit = null;
+  localProfile.submitCount = 0;
+  localProfile.remindCount = 0;
+  return db.collection('users').doc(profile.userId).set(profile).then(() => localProfile);
 }
